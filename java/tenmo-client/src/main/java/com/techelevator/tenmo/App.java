@@ -1,10 +1,11 @@
 package com.techelevator.tenmo;
 
-import com.techelevator.tenmo.models.AuthenticatedUser;
-import com.techelevator.tenmo.models.UserCredentials;
-import com.techelevator.tenmo.services.AuthenticationService;
-import com.techelevator.tenmo.services.AuthenticationServiceException;
+import com.techelevator.tenmo.models.*;
+import com.techelevator.tenmo.services.*;
 import com.techelevator.view.ConsoleService;
+import org.springframework.web.client.ResourceAccessException;
+
+import java.math.BigDecimal;
 
 public class App {
 
@@ -25,15 +26,23 @@ private static final String API_BASE_URL = "http://localhost:8080/";
     private AuthenticatedUser currentUser;
     private ConsoleService console;
     private AuthenticationService authenticationService;
+    private AccountService accountService;
+    private UserService userService;
+    private TransferService transferService;
 
     public static void main(String[] args) {
-    	App app = new App(new ConsoleService(System.in, System.out), new AuthenticationService(API_BASE_URL));
+    	App app = new App(new ConsoleService(System.in, System.out), new AuthenticationService(API_BASE_URL),
+				new AccountService(API_BASE_URL), new UserService(API_BASE_URL), new TransferService(API_BASE_URL));
     	app.run();
     }
 
-    public App(ConsoleService console, AuthenticationService authenticationService) {
+    public App(ConsoleService console, AuthenticationService authenticationService, AccountService accountService,
+			   UserService userService, TransferService transferService) {
 		this.console = console;
 		this.authenticationService = authenticationService;
+		this.accountService = accountService;
+		this.userService = userService;
+		this.transferService = transferService;
 	}
 
 	public void run() {
@@ -46,34 +55,59 @@ private static final String API_BASE_URL = "http://localhost:8080/";
 	}
 
 	private void mainMenu() {
-		while(true) {
-			String choice = (String)console.getChoiceFromOptions(MAIN_MENU_OPTIONS);
-			if(MAIN_MENU_OPTION_VIEW_BALANCE.equals(choice)) {
-				viewCurrentBalance();
-			} else if(MAIN_MENU_OPTION_VIEW_PAST_TRANSFERS.equals(choice)) {
-				viewTransferHistory();
-			} else if(MAIN_MENU_OPTION_VIEW_PENDING_REQUESTS.equals(choice)) {
-				viewPendingRequests();
-			} else if(MAIN_MENU_OPTION_SEND_BUCKS.equals(choice)) {
-				sendBucks();
-			} else if(MAIN_MENU_OPTION_REQUEST_BUCKS.equals(choice)) {
-				requestBucks();
-			} else if(MAIN_MENU_OPTION_LOGIN.equals(choice)) {
-				login();
-			} else {
-				// the only other option on the main menu is to exit
-				exitProgram();
+		while (true) {
+			try {
+				String choice = (String) console.getChoiceFromOptions(MAIN_MENU_OPTIONS);
+				if (MAIN_MENU_OPTION_VIEW_BALANCE.equals(choice)) {
+					viewCurrentBalance();
+				} else if (MAIN_MENU_OPTION_VIEW_PAST_TRANSFERS.equals(choice)) {
+					viewTransferHistory();
+				} else if (MAIN_MENU_OPTION_VIEW_PENDING_REQUESTS.equals(choice)) {
+					viewPendingRequests();
+				} else if (MAIN_MENU_OPTION_SEND_BUCKS.equals(choice)) {
+					sendBucks();
+				} else if (MAIN_MENU_OPTION_REQUEST_BUCKS.equals(choice)) {
+					requestBucks();
+				} else if (MAIN_MENU_OPTION_LOGIN.equals(choice)) {
+					login();
+				} else {
+					// the only other option on the main menu is to exit
+					exitProgram();
+				}
+			} catch (AccountServiceException | ResourceAccessException e) {
+				console.printError(e.getMessage());
+				console.next();
 			}
 		}
 	}
-
-	private void viewCurrentBalance() {
-		// TODO Auto-generated method stub
-		
+	private void viewCurrentBalance() throws AccountServiceException {
+		BigDecimal balance = accountService.getBalance(currentUser.getToken());
+		console.displayBalance(balance);
+		console.next();
 	}
 
 	private void viewTransferHistory() {
-		// TODO Auto-generated method stub
+		boolean finished = false;
+		while (!finished) {
+			try {
+				TransferDetail[] transferList = transferService.viewTransferHistory(currentUser.getToken());
+				console.displayTransferList(transferList);
+
+				Long transferID = Long.parseLong(console.getUserInput("Please enter transfer ID to view " +
+						"details (0 to cancel): "));
+
+				if (transferID == 0) {
+					console.output("View request cancelled.");
+					finished = true;
+				} else {
+					console.displayTransferDetails(transferID, transferList);
+					console.next();
+					finished = true;
+				}
+			} catch (NumberFormatException e) {
+				console.output("Please enter the transfer ID number or 0 to cancel.");
+			}
+		}
 		
 	}
 
@@ -83,8 +117,29 @@ private static final String API_BASE_URL = "http://localhost:8080/";
 	}
 
 	private void sendBucks() {
-		// TODO Auto-generated method stub
-		
+    	boolean finished = false;
+    	while (!finished) {
+			try {
+				User[] userList = userService.listUsers(currentUser.getToken());
+				console.displayUserList(userList);
+
+				Long toUserID = Long.parseLong(console.getUserInput("Enter ID of user you are sending to (0 to cancel)"));
+
+				if (toUserID == 0) {
+					console.output("Transaction cancelled.");
+					finished = true;
+				} else {
+					BigDecimal transferAmount = new BigDecimal(console.getUserInput("Enter amount"));
+
+					TransferStatus transferStatus = transferService.sendBucks(currentUser.getToken(), toUserID, transferAmount);
+					console.output("Transfer Status: " + transferStatus.getTransferStatusDesc());
+					finished = true;
+				}
+
+			} catch (NumberFormatException e) {
+				console.output("Please provided necessary information and only enter numeric values.");
+			}
+		}
 	}
 
 	private void requestBucks() {
